@@ -36,6 +36,14 @@ def _exact_pins_by_table() -> dict[str, list[Requirement]]:
     return pinned
 
 
+def _exclude_newer_exemptions() -> dict[str, object]:
+    """PEP 503 name -> value. Only ``false`` exempts on every index: a date cutoff still needs
+    the file's upload time, which mirrors without PEP 700 metadata omit (#132558)."""
+    manifest = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    table = manifest["tool"]["uv"].get("exclude-newer-package", {})
+    return {_normalized(name): value for name, value in table.items()}
+
+
 def test_test_dependencies_are_group_only_in_manifest_and_lock():
     manifest = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     lock = tomllib.loads((REPO_ROOT / "uv.lock").read_text(encoding="utf-8"))
@@ -80,26 +88,25 @@ def test_starlette_server_pins_and_lock_exclude_cve_2026_48710():
     versions = [Version(row["version"]) for row in lock["package"] if row["name"] == "starlette"]
     assert versions and all(version >= floor for version in versions)
 
+
 def test_build_system_requires_exempt_from_exclude_newer():
     """Guard cited by the ``exclude-newer`` comment block: an exact-pinned build requirement
     cannot move without a reviewed bump, so the rolling cutoff can only brick the build
     ("No solution found when resolving: setuptools==X.Y.Z", #78227 family)."""
-    manifest = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
-    exempt = {_normalized(name) for name in manifest["tool"]["uv"].get("exclude-newer-package", {})}
+    exempt = _exclude_newer_exemptions()
     for requirement in _exact_pins_by_table().get("build-system.requires", []):
-        assert _normalized(requirement.name) in exempt, requirement.name
+        assert exempt.get(_normalized(requirement.name)) is False, requirement.name
 
 
 def test_exact_pinned_deps_exempt_from_exclude_newer():
     """Guard cited by the ``exclude-newer`` comment block: every exact pin is a reviewed
     version, so the rolling 14-day cutoff adds no supply-chain protection for it and only
     creates the release-day brick ("no version of X==Y" until the window passes)."""
-    manifest = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
-    exempt = {_normalized(name) for name in manifest["tool"]["uv"].get("exclude-newer-package", {})}
+    exempt = _exclude_newer_exemptions()
     missing = sorted(
-        f"{table}: {requirement}"
+        f"{table}: {requirement} (exemption: {exempt.get(_normalized(requirement.name))!r})"
         for table, requirements in _exact_pins_by_table().items()
         for requirement in requirements
-        if _normalized(requirement.name) not in exempt
+        if exempt.get(_normalized(requirement.name)) is not False
     )
     assert not missing, "\n".join(missing)
