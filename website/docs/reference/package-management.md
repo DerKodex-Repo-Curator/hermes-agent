@@ -579,6 +579,22 @@ retains the CDN fallback: one serial attempt at the missing ranges. Extraction,
 verification and publication are not repeated. Python and npm package requests
 remain under uv and npm's own retry policies.
 
+## Package mirrors and the release-age check
+
+Hermes skips Python package releases younger than 14 days (uv's
+`exclude-newer`), so a freshly published, possibly compromised release cannot
+reach your install. Exact pins (`name==X.Y.Z`) are exempt, because the version
+can only change through a reviewed pin bump. To apply the age check, uv needs
+each file's upload time from the package index.
+
+Some mirrors do not report upload times. A plugin install or `hermes update`
+against one of them stops with `has no publish time`, and Hermes points at the
+index rather than at your plugins. Use `https://pypi.org/simple`, or a mirror
+that serves upload times (PEP 700 metadata). Set the index with `index-url` in
+`pip.conf`, which Hermes passes to uv, or with `UV_INDEX_URL`. A mirror that
+leaves out only some upload times works as long as the missing ones belong to
+exact pins.
+
 ## Diagnostics
 
 - **Slow Python dependency builds:** PM's streamed uv commands enable verbose output. Bundle and build logs show package activity and build-backend stdout/stderr while the build runs, not only after failure.
